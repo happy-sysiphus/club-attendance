@@ -20,7 +20,11 @@ const PARTS: Part[] = ["소프라노", "알토", "테너", "베이스"];
 const STATUS_OPTIONS: AttendanceStatus[] = ["출석", "지각", "결석", "미체크"];
 
 function getToday() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export default function Home() {
@@ -60,30 +64,32 @@ export default function Home() {
     };
   }, [filteredMembers, attendanceStatus]);
 
-  async function saveAttendanceToSheet(
-    member: Member,
-    status: Exclude<AttendanceStatus, "미체크">
-  ) {
-    const response = await fetch("/api/attendance", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        session_id: selectedDate,
-        date: selectedDate,
-        member_id: member.studentId,
-        name: member.name,
-        part: member.part,
-        status,
-        checked_by: checkedBy,
-        note: "",
-      }),
-    });
+async function saveAttendanceToSheet(
+  member: Member,
+  status: Exclude<AttendanceStatus, "미체크">
+) {
+  const today = getToday();
 
-    const result = await response.json();
-    return result;
-  }
+  const response = await fetch("/api/attendance", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      session_id: today,
+      date: today,
+      member_id: member.studentId,
+      name: member.name,
+      part: member.part,
+      status,
+      checked_by: checkedBy,
+      note: "",
+    }),
+  });
+
+  const result = await response.json();
+  return result;
+}
 
   function handleAdminChange(memberId: number, status: AttendanceStatus) {
     setAttendanceStatus((prev) => ({
@@ -97,11 +103,6 @@ export default function Home() {
 
     if (status === "미체크") {
       alert("미체크는 저장할 수 없습니다.");
-      return;
-    }
-
-    if (!selectedDate) {
-      alert("날짜를 선택하세요.");
       return;
     }
 
@@ -201,10 +202,10 @@ export default function Home() {
             <label>날짜</label>
             <br />
             <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              style={{ width: "100%", padding: "10px", marginTop: "8px" }}
+              type="text"
+              value={getToday()}
+              readOnly
+              style={{ width: "100%", padding: "10px", marginTop: "8px", backgroundColor: "#f5f5f5" }}
             />
           </div>
 
