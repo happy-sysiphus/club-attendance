@@ -18,12 +18,7 @@ type Member = {
 };
 
 const initialMembers: Member[] = [
-  { id: 1, name: "김민지", part: "소프라노", studentId: "SOP001" },
-  { id: 2, name: "박서현", part: "소프라노", studentId: "SOP002" },
-  { id: 3, name: "이다인", part: "소프라노", studentId: "SOP003" },
-  { id: 4, name: "이서준", part: "알토", studentId: "ALT001" },
-  { id: 5, name: "박지훈", part: "테너", studentId: "TEN001" },
-  { id: 6, name: "최유진", part: "베이스", studentId: "BAS001" },
+  { id: 1, name: "박은성", part: "베이스", studentId: "BAS001" }
 ];
 
 const PARTS: Part[] = ["소프라노", "알토", "테너", "베이스"];
