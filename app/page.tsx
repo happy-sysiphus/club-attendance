@@ -1,23 +1,46 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 type Part = "소프라노" | "알토" | "테너" | "베이스";
 type AttendanceStatus = "출석" | "지각" | "결석" | "미체크";
+type Checker =
+  | "소프라노 파트장"
+  | "알토 파트장"
+  | "테너 파트장"
+  | "베이스 파트장";
 
 type Member = {
   id: number;
   name: string;
   part: Part;
-  studentId: string; // 시트의 member_id로 사용
+  studentId: string; // 시트의 member_id
 };
 
 const initialMembers: Member[] = [
-  { id: 1, name: "박은성", part: "베이스", studentId: "BAS001" },
+  { id: 1, name: "김민지", part: "소프라노", studentId: "SOP001" },
+  { id: 2, name: "박서현", part: "소프라노", studentId: "SOP002" },
+  { id: 3, name: "이다인", part: "소프라노", studentId: "SOP003" },
+  { id: 4, name: "이서준", part: "알토", studentId: "ALT001" },
+  { id: 5, name: "박지훈", part: "테너", studentId: "TEN001" },
+  { id: 6, name: "최유진", part: "베이스", studentId: "BAS001" },
 ];
 
 const PARTS: Part[] = ["소프라노", "알토", "테너", "베이스"];
 const STATUS_OPTIONS: AttendanceStatus[] = ["출석", "지각", "결석", "미체크"];
+const CHECKERS: Checker[] = [
+  "소프라노 파트장",
+  "알토 파트장",
+  "테너 파트장",
+  "베이스 파트장",
+];
+
+const checkerToPart: Record<Checker, Part> = {
+  "소프라노 파트장": "소프라노",
+  "알토 파트장": "알토",
+  "테너 파트장": "테너",
+  "베이스 파트장": "베이스",
+};
 
 function getToday() {
   const now = new Date();
@@ -29,9 +52,7 @@ function getToday() {
 
 export default function Home() {
   const [members, setMembers] = useState<Member[]>(initialMembers);
-  const [selectedDate, setSelectedDate] = useState(getToday());
-  const [checkedBy, setCheckedBy] = useState("총무");
-  const [partFilter, setPartFilter] = useState<Part | "전체">("전체");
+  const [checkedBy, setCheckedBy] = useState<Checker>("소프라노 파트장");
 
   const [newName, setNewName] = useState("");
   const [newPart, setNewPart] = useState<Part>("소프라노");
@@ -48,10 +69,10 @@ export default function Home() {
     6: "미체크",
   });
 
-  const filteredMembers =
-    partFilter === "전체"
-      ? members
-      : members.filter((member) => member.part === partFilter);
+  const [lateReasons, setLateReasons] = useState<Record<number, string>>({});
+
+  const currentPart = checkerToPart[checkedBy];
+  const filteredMembers = members.filter((member) => member.part === currentPart);
 
   const summary = useMemo(() => {
     const statuses = filteredMembers.map((member) => attendanceStatus[member.id] || "미체크");
@@ -64,38 +85,46 @@ export default function Home() {
     };
   }, [filteredMembers, attendanceStatus]);
 
-async function saveAttendanceToSheet(
-  member: Member,
-  status: Exclude<AttendanceStatus, "미체크">
-) {
-  const today = getToday();
+  async function saveAttendanceToSheet(
+    member: Member,
+    status: Exclude<AttendanceStatus, "미체크">
+  ) {
+    const today = getToday();
+    const note = status === "지각" ? (lateReasons[member.id] || "").trim() : "";
 
-  const response = await fetch("/api/attendance", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      session_id: today,
-      date: today,
-      member_id: member.studentId,
-      name: member.name,
-      part: member.part,
-      status,
-      checked_by: checkedBy,
-      note: "",
-    }),
-  });
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        session_id: today,
+        date: today,
+        member_id: member.studentId,
+        name: member.name,
+        part: member.part,
+        status,
+        checked_by: checkedBy,
+        note,
+      }),
+    });
 
-  const result = await response.json();
-  return result;
-}
+    const result = await response.json();
+    return result;
+  }
 
   function handleAdminChange(memberId: number, status: AttendanceStatus) {
     setAttendanceStatus((prev) => ({
       ...prev,
       [memberId]: status,
     }));
+
+    if (status !== "지각") {
+      setLateReasons((prev) => ({
+        ...prev,
+        [memberId]: "",
+      }));
+    }
   }
 
   async function handleAdminSave(member: Member) {
@@ -106,8 +135,8 @@ async function saveAttendanceToSheet(
       return;
     }
 
-    if (!checkedBy.trim()) {
-      alert("체크자를 입력하세요.");
+    if (status === "지각" && !(lateReasons[member.id] || "").trim()) {
+      alert("지각 사유를 입력하세요.");
       return;
     }
 
@@ -160,6 +189,10 @@ async function saveAttendanceToSheet(
       ...prev,
       [newMember.id]: "미체크",
     }));
+    setLateReasons((prev) => ({
+      ...prev,
+      [newMember.id]: "",
+    }));
 
     setNewName("");
     setNewPart("소프라노");
@@ -175,9 +208,9 @@ async function saveAttendanceToSheet(
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>동아리 출석체크</h1>
+      <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>GLEE 출석체크</h1>
       <p style={{ color: "#555", marginBottom: "24px" }}>
-        같은 날짜 + 같은 member_id로 다시 저장하면 마지막 입력값으로 덮어씀
+        오늘 날짜로 자동 저장되고, 체크자에 따라 해당 파트 단원만 표시됨
       </p>
 
       <section
@@ -205,37 +238,45 @@ async function saveAttendanceToSheet(
               type="text"
               value={getToday()}
               readOnly
-              style={{ width: "100%", padding: "10px", marginTop: "8px", backgroundColor: "#f5f5f5" }}
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginTop: "8px",
+                backgroundColor: "#f5f5f5",
+              }}
             />
           </div>
 
           <div>
             <label>체크자</label>
             <br />
-            <input
-              type="text"
-              value={checkedBy}
-              onChange={(e) => setCheckedBy(e.target.value)}
-              placeholder="예: 총무"
-              style={{ width: "100%", padding: "10px", marginTop: "8px" }}
-            />
-          </div>
-
-          <div>
-            <label>파트 필터</label>
-            <br />
             <select
-              value={partFilter}
-              onChange={(e) => setPartFilter(e.target.value as Part | "전체")}
+              value={checkedBy}
+              onChange={(e) => setCheckedBy(e.target.value as Checker)}
               style={{ width: "100%", padding: "10px", marginTop: "8px" }}
             >
-              <option value="전체">전체</option>
-              {PARTS.map((part) => (
-                <option key={part} value={part}>
-                  {part}
+              {CHECKERS.map((checker) => (
+                <option key={checker} value={checker}>
+                  {checker}
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label>현재 표시 파트</label>
+            <br />
+            <input
+              type="text"
+              value={currentPart}
+              readOnly
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginTop: "8px",
+                backgroundColor: "#f5f5f5",
+              }}
+            />
           </div>
         </div>
       </section>
@@ -276,9 +317,9 @@ async function saveAttendanceToSheet(
       >
         <h2 style={{ marginTop: 0 }}>임원용 전체 관리</h2>
         <p style={{ color: "#666", marginTop: "8px" }}>
-          저장 버튼을 누르면 현재 선택한 날짜 기준으로 시트에 저장됨.
+          선택한 체크자의 파트 단원만 표시됨.
           <br />
-          같은 날짜에 같은 단원을 다시 저장하면 기존 값이 수정되는 게 아니라 마지막 값으로 덮어씀.
+          같은 날짜에 같은 단원을 다시 저장하면 마지막 입력값으로 덮어씀.
         </p>
 
         <div style={{ overflowX: "auto", marginTop: "16px" }}>
@@ -290,12 +331,14 @@ async function saveAttendanceToSheet(
                 <th style={thStyle}>파트</th>
                 <th style={thStyle}>현재 상태</th>
                 <th style={thStyle}>변경</th>
+                <th style={thStyle}>지각 사유</th>
                 <th style={thStyle}>시트 저장</th>
               </tr>
             </thead>
             <tbody>
               {filteredMembers.map((member) => {
                 const status = attendanceStatus[member.id] || "미체크";
+                const isLate = status === "지각";
 
                 return (
                   <tr key={member.id}>
@@ -317,6 +360,24 @@ async function saveAttendanceToSheet(
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td style={tdStyle}>
+                      {isLate ? (
+                        <input
+                          type="text"
+                          value={lateReasons[member.id] || ""}
+                          onChange={(e) =>
+                            setLateReasons((prev) => ({
+                              ...prev,
+                              [member.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="지각 사유 입력"
+                          style={{ width: "180px", padding: "8px" }}
+                        />
+                      ) : (
+                        <span style={{ color: "#999" }}>-</span>
+                      )}
                     </td>
                     <td style={tdStyle}>
                       <button
@@ -401,14 +462,14 @@ async function saveAttendanceToSheet(
   );
 }
 
-const thStyle = {
+const thStyle: CSSProperties = {
   borderBottom: "1px solid #ddd",
   padding: "10px",
-  textAlign: "left" as const,
+  textAlign: "left",
   backgroundColor: "#f7f7f7",
 };
 
-const tdStyle = {
+const tdStyle: CSSProperties = {
   borderBottom: "1px solid #eee",
   padding: "10px",
 };
