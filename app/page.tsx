@@ -11,16 +11,10 @@ type Checker =
   | "베이스 파트장";
 
 type Member = {
-  id: number;
+  id: number; // 프론트 내부용
   name: string;
   part: Part;
-  studentId: string; // 시트의 member_id
-};
-
-type MemberApiItem = {
-  member_id: string;
-  name: string;
-  part: Part;
+  studentId: string; // 시트의 member_id 사용
 };
 
 const PARTS: Part[] = ["소프라노", "알토", "테너", "베이스"];
@@ -53,64 +47,16 @@ export default function Home() {
 
   const [newName, setNewName] = useState("");
   const [newPart, setNewPart] = useState<Part>("소프라노");
+  const [newStudentId, setNewStudentId] = useState("");
 
-  const [loadingMembers, setLoadingMembers] = useState(true);
   const [savingMemberId, setSavingMemberId] = useState<number | null>(null);
-  const [isBulkSaving, setIsBulkSaving] = useState(false);
-  const [isAddingMember, setIsAddingMember] = useState(false);
-  const [deletingMemberId, setDeletingMemberId] = useState<number | null>(null);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(true);
 
   const [attendanceStatus, setAttendanceStatus] = useState<Record<number, AttendanceStatus>>({});
   const [lateReasons, setLateReasons] = useState<Record<number, string>>({});
 
   const currentPart = checkerToPart[checkedBy];
   const filteredMembers = members.filter((member) => member.part === currentPart);
-
-  useEffect(() => {
-    loadMembers();
-  }, []);
-
-  async function loadMembers() {
-    setLoadingMembers(true);
-
-    try {
-      const response = await fetch("/api/attendance?action=get_members", {
-        method: "GET",
-      });
-
-      const result = await response.json();
-
-      if (!result.ok) {
-        alert("단원 목록 불러오기 실패: " + (result.error || "알 수 없는 오류"));
-        return;
-      }
-
-      const loadedMembers: Member[] = (result.members as MemberApiItem[]).map((item, index) => ({
-        id: Date.now() + index,
-        name: item.name,
-        part: item.part,
-        studentId: item.member_id,
-      }));
-
-      setMembers(loadedMembers);
-
-      const nextAttendanceStatus: Record<number, AttendanceStatus> = {};
-      const nextLateReasons: Record<number, string> = {};
-
-      loadedMembers.forEach((member) => {
-        nextAttendanceStatus[member.id] = "미체크";
-        nextLateReasons[member.id] = "";
-      });
-
-      setAttendanceStatus(nextAttendanceStatus);
-      setLateReasons(nextLateReasons);
-    } catch (error) {
-      console.error(error);
-      alert("단원 목록을 불러오는 중 오류가 발생했습니다.");
-    } finally {
-      setLoadingMembers(false);
-    }
-  }
 
   const summary = useMemo(() => {
     const statuses = filteredMembers.map((member) => attendanceStatus[member.id] || "미체크");
@@ -122,6 +68,63 @@ export default function Home() {
       unchecked: statuses.filter((v) => v === "미체크").length,
     };
   }, [filteredMembers, attendanceStatus]);
+
+  useEffect(() => {
+    loadMembers();
+  }, []);
+
+  async function loadMembers() {
+    setIsLoadingMembers(true);
+
+    try {
+      const response = await fetch("/api/members", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!result.ok) {
+        alert("단원 목록 불러오기 실패: " + (result.error || "알 수 없는 오류"));
+        return;
+      }
+
+      const loadedMembers: Member[] = (result.members || []).map(
+        (
+          item: {
+            member_id: string;
+            name: string;
+            part: Part;
+            student_id?: string;
+          },
+          index: number
+        ) => ({
+          id: index + 1,
+          name: item.name,
+          part: item.part,
+          studentId: item.member_id, // 시트의 member_id를 그대로 사용
+        })
+      );
+
+      setMembers(loadedMembers);
+
+      const nextStatus: Record<number, AttendanceStatus> = {};
+      const nextLateReasons: Record<number, string> = {};
+
+      loadedMembers.forEach((member) => {
+        nextStatus[member.id] = "미체크";
+        nextLateReasons[member.id] = "";
+      });
+
+      setAttendanceStatus(nextStatus);
+      setLateReasons(nextLateReasons);
+    } catch (error) {
+      console.error(error);
+      alert("단원 목록 불러오기 중 오류가 발생했습니다.");
+    } finally {
+      setIsLoadingMembers(false);
+    }
+  }
 
   async function saveAttendanceToSheet(
     member: Member,
@@ -148,40 +151,8 @@ export default function Home() {
       }),
     });
 
-    return await response.json();
-  }
-
-  async function saveMemberToSheet(member: { name: string; part: Part }) {
-    const response = await fetch("/api/attendance", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        type: "member",
-        action: "add",
-        name: member.name,
-        part: member.part,
-      }),
-    });
-
-    return await response.json();
-  }
-
-  async function deleteMemberFromSheet(memberId: string) {
-    const response = await fetch("/api/attendance", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        type: "member",
-        action: "delete",
-        member_id: memberId,
-      }),
-    });
-
-    return await response.json();
+    const result = await response.json();
+    return result;
   }
 
   function handleAdminChange(memberId: number, status: AttendanceStatus) {
@@ -230,163 +201,49 @@ export default function Home() {
     }
   }
 
-  async function handleBulkSave() {
-    if (filteredMembers.length === 0) {
-      alert("현재 파트에 저장할 단원이 없습니다.");
+  async function addMember() {
+    if (!newName.trim()) {
+      alert("이름을 입력하세요.");
       return;
     }
 
-    const membersToSave = filteredMembers.filter(
-      (member) => (attendanceStatus[member.id] || "미체크") !== "미체크"
-    );
-
-    if (membersToSave.length === 0) {
-      alert("저장할 출석 상태가 없습니다. 먼저 상태를 선택하세요.");
+    if (!newStudentId.trim()) {
+      alert("학번을 입력하세요.");
       return;
     }
-
-    const invalidLateMember = membersToSave.find((member) => {
-      const status = attendanceStatus[member.id];
-      return status === "지각" && !(lateReasons[member.id] || "").trim();
-    });
-
-    if (invalidLateMember) {
-      alert(`${invalidLateMember.name}의 지각 사유를 입력하세요.`);
-      return;
-    }
-
-    setIsBulkSaving(true);
 
     try {
-      const results = await Promise.allSettled(
-        membersToSave.map(async (member) => {
-          const status = attendanceStatus[member.id] as Exclude<AttendanceStatus, "미체크">;
-          const result = await saveAttendanceToSheet(member, status);
+      const response = await fetch("/api/attendance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "member",
+          action: "add",
+          name: newName.trim(),
+          part: newPart,
+          student_id: newStudentId.trim(),
+        }),
+      });
 
-          if (!result.ok) {
-            throw new Error(result.error || "알 수 없는 오류");
-          }
-
-          return member.name;
-        })
-      );
-
-      const successCount = results.filter((r) => r.status === "fulfilled").length;
-      const failedResults = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
-      const skippedCount = filteredMembers.length - membersToSave.length;
-
-      let message = `일괄 저장 완료\n성공: ${successCount}명`;
-
-      if (skippedCount > 0) {
-        message += `\n미체크로 건너뜀: ${skippedCount}명`;
-      }
-
-      if (failedResults.length > 0) {
-        message += `\n실패: ${failedResults.length}명`;
-        const firstError = failedResults[0]?.reason;
-        if (firstError instanceof Error) {
-          message += `\n첫 오류: ${firstError.message}`;
-        }
-      }
-
-      alert(message);
-    } catch (error) {
-      console.error(error);
-      alert("일괄 저장 중 오류가 발생했습니다.");
-    } finally {
-      setIsBulkSaving(false);
-    }
-  }
-
- async function addMember() {
-  if (!newName.trim()) {
-    alert("이름을 입력하세요.");
-    return;
-  }
-
-  setIsAddingMember(true);
-
-  try {
-    const result = await saveMemberToSheet({
-      name: newName.trim(),
-      part: newPart,
-    });
-
-    if (!result.ok) {
-      alert("단원 저장 실패: " + (result.error || "알 수 없는 오류"));
-      return;
-    }
-
-    const createdMember: Member = {
-      id: Date.now(),
-      name: result.name,
-      part: result.part,
-      studentId: result.member_id,
-    };
-
-    setMembers((prev) => [...prev, createdMember]);
-    setAttendanceStatus((prev) => ({
-      ...prev,
-      [createdMember.id]: "미체크",
-    }));
-    setLateReasons((prev) => ({
-      ...prev,
-      [createdMember.id]: "",
-    }));
-
-    setNewName("");
-    setNewPart("소프라노");
-
-    alert(`단원 등록 완료 (${result.member_id})`);
-  } catch (error) {
-    console.error(error);
-    alert("단원 등록 중 오류가 발생했습니다.");
-  } finally {
-    setIsAddingMember(false);
-  }
-}
-
-  async function deleteMember(memberId: number) {
-    const target = members.find((m) => m.id === memberId);
-    if (!target) return;
-
-    const ok = window.confirm(`${target.name} 단원을 삭제할까요?`);
-    if (!ok) return;
-
-    setDeletingMemberId(memberId);
-
-    try {
-      const result = await deleteMemberFromSheet(target.studentId);
+      const result = await response.json();
 
       if (!result.ok) {
-        alert("단원 삭제 실패: " + (result.error || "알 수 없는 오류"));
+        alert("단원 추가 실패: " + (result.error || "알 수 없는 오류"));
         return;
       }
 
-      setMembers((prev) => prev.filter((m) => m.id !== memberId));
+      alert("단원 추가 완료");
 
-      setAttendanceStatus((prev) => {
-        const next = { ...prev };
-        delete next[memberId];
-        return next;
-      });
+      setNewName("");
+      setNewPart("소프라노");
+      setNewStudentId("");
 
-      setLateReasons((prev) => {
-        const next = { ...prev };
-        delete next[memberId];
-        return next;
-      });
-
-      if (savingMemberId === memberId) {
-        setSavingMemberId(null);
-      }
-
-      alert("단원 삭제 완료");
+      await loadMembers();
     } catch (error) {
       console.error(error);
-      alert("단원 삭제 중 오류가 발생했습니다.");
-    } finally {
-      setDeletingMemberId(null);
+      alert("단원 추가 중 오류가 발생했습니다.");
     }
   }
 
@@ -399,9 +256,9 @@ export default function Home() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>GLEE 출석체크</h1>
+      <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>동아리 출석체크</h1>
       <p style={{ color: "#555", marginBottom: "24px" }}>
-        오늘 날짜로 자동 저장되고, 체크자에 따라 해당 파트 단원만 표시됨
+        members 시트에서 단원 목록을 자동으로 불러오고, 체크자에 따라 해당 파트만 표시됨
       </p>
 
       <section
@@ -513,55 +370,29 @@ export default function Home() {
           같은 날짜에 같은 단원을 다시 저장하면 마지막 입력값으로 덮어씀.
         </p>
 
-        <div style={{ marginTop: "16px", marginBottom: "16px" }}>
-          <button
-            onClick={handleBulkSave}
-            disabled={isBulkSaving || loadingMembers}
-            style={{
-              padding: "10px 16px",
-              border: "none",
-              borderRadius: "8px",
-              cursor: isBulkSaving || loadingMembers ? "default" : "pointer",
-            }}
-          >
-            {isBulkSaving ? "일괄 저장 중..." : `현재 파트(${currentPart}) 일괄 저장`}
-          </button>
-        </div>
-
-        <div style={{ overflowX: "auto", marginTop: "16px" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>이름</th>
-                <th style={thStyle}>member_id</th>
-                <th style={thStyle}>파트</th>
-                <th style={thStyle}>현재 상태</th>
-                <th style={thStyle}>변경</th>
-                <th style={thStyle}>지각 사유</th>
-                <th style={thStyle}>시트 저장</th>
-                <th style={thStyle}>삭제</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loadingMembers ? (
+        {isLoadingMembers ? (
+          <p style={{ marginTop: "16px" }}>단원 목록 불러오는 중...</p>
+        ) : (
+          <div style={{ overflowX: "auto", marginTop: "16px" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
                 <tr>
-                  <td style={tdStyle} colSpan={8}>
-                    단원 목록 불러오는 중...
-                  </td>
+                  <th style={thStyle}>이름</th>
+                  <th style={thStyle}>member_id</th>
+                  <th style={thStyle}>파트</th>
+                  <th style={thStyle}>현재 상태</th>
+                  <th style={thStyle}>변경</th>
+                  <th style={thStyle}>지각 사유</th>
+                  <th style={thStyle}>시트 저장</th>
                 </tr>
-              ) : filteredMembers.length === 0 ? (
-                <tr>
-                  <td style={tdStyle} colSpan={8}>
-                    현재 파트에 등록된 단원이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                filteredMembers.map((member) => {
+              </thead>
+              <tbody>
+                {filteredMembers.map((member) => {
                   const status = attendanceStatus[member.id] || "미체크";
                   const isLate = status === "지각";
 
                   return (
-                    <tr key={member.id}>
+                    <tr key={member.studentId}>
                       <td style={tdStyle}>{member.name}</td>
                       <td style={tdStyle}>{member.studentId}</td>
                       <td style={tdStyle}>{member.part}</td>
@@ -602,46 +433,29 @@ export default function Home() {
                       <td style={tdStyle}>
                         <button
                           onClick={() => handleAdminSave(member)}
-                          disabled={
-                            savingMemberId === member.id ||
-                            isBulkSaving ||
-                            deletingMemberId === member.id
-                          }
+                          disabled={savingMemberId === member.id}
                           style={{
                             padding: "8px 12px",
-                            cursor:
-                              savingMemberId === member.id ||
-                              isBulkSaving ||
-                              deletingMemberId === member.id
-                                ? "default"
-                                : "pointer",
+                            cursor: savingMemberId === member.id ? "default" : "pointer",
                           }}
                         >
                           {savingMemberId === member.id ? "저장 중..." : "저장"}
                         </button>
                       </td>
-                      <td style={tdStyle}>
-                        <button
-                          onClick={() => deleteMember(member.id)}
-                          disabled={isBulkSaving || deletingMemberId === member.id}
-                          style={{
-                            padding: "8px 12px",
-                            cursor:
-                              isBulkSaving || deletingMemberId === member.id
-                                ? "default"
-                                : "pointer",
-                          }}
-                        >
-                          {deletingMemberId === member.id ? "삭제 중..." : "삭제"}
-                        </button>
-                      </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                })}
+                {filteredMembers.length === 0 && (
+                  <tr>
+                    <td style={tdStyle} colSpan={7}>
+                      해당 파트 단원이 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section
@@ -680,20 +494,27 @@ export default function Home() {
               </option>
             ))}
           </select>
+
+          <input
+            type="text"
+            placeholder="학번"
+            value={newStudentId}
+            onChange={(e) => setNewStudentId(e.target.value)}
+            style={{ width: "100%", padding: "10px" }}
+          />
         </div>
 
         <button
           onClick={addMember}
-          disabled={isAddingMember}
           style={{
             marginTop: "16px",
             padding: "12px 20px",
             border: "none",
             borderRadius: "8px",
-            cursor: isAddingMember ? "default" : "pointer",
+            cursor: "pointer",
           }}
         >
-          {isAddingMember ? "등록 중..." : "단원 등록"}
+          단원 등록
         </button>
       </section>
     </main>
