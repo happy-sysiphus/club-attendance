@@ -11,7 +11,7 @@ type Checker =
   | "베이스 파트장";
 
 type Member = {
-  id: number; // 프론트 내부용
+  id: number;
   name: string;
   part: Part;
   studentId: string; // 시트의 member_id 사용
@@ -49,8 +49,8 @@ export default function Home() {
   const [newPart, setNewPart] = useState<Part>("소프라노");
   const [newStudentId, setNewStudentId] = useState("");
 
-  const [savingMemberId, setSavingMemberId] = useState<number | null>(null);
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
+  const [isBatchSaving, setIsBatchSaving] = useState(false);
 
   const [attendanceStatus, setAttendanceStatus] = useState<Record<number, AttendanceStatus>>({});
   const [lateReasons, setLateReasons] = useState<Record<number, string>>({});
@@ -102,7 +102,7 @@ export default function Home() {
           id: index + 1,
           name: item.name,
           part: item.part,
-          studentId: item.member_id, // 시트의 member_id를 그대로 사용
+          studentId: item.member_id,
         })
       );
 
@@ -169,35 +169,58 @@ export default function Home() {
     }
   }
 
-  async function handleAdminSave(member: Member) {
-    const status = attendanceStatus[member.id] || "미체크";
-
-    if (status === "미체크") {
-      alert("미체크는 저장할 수 없습니다.");
+  async function handleBatchSave() {
+    if (filteredMembers.length === 0) {
+      alert("저장할 단원이 없습니다.");
       return;
     }
 
-    if (status === "지각" && !(lateReasons[member.id] || "").trim()) {
-      alert("지각 사유를 입력하세요.");
+    const uncheckedMembers = filteredMembers.filter(
+      (member) => (attendanceStatus[member.id] || "미체크") === "미체크"
+    );
+
+    if (uncheckedMembers.length > 0) {
+      alert(
+        "미체크 단원이 있어서 저장할 수 없습니다.\n\n" +
+          uncheckedMembers.map((member) => member.name).join(", ")
+      );
       return;
     }
 
-    setSavingMemberId(member.id);
+    const lateWithoutReasonMembers = filteredMembers.filter((member) => {
+      const status = attendanceStatus[member.id] || "미체크";
+      return status === "지각" && !(lateReasons[member.id] || "").trim();
+    });
+
+    if (lateWithoutReasonMembers.length > 0) {
+      alert(
+        "지각 사유가 비어 있는 단원이 있습니다.\n\n" +
+          lateWithoutReasonMembers.map((member) => member.name).join(", ")
+      );
+      return;
+    }
+
+    setIsBatchSaving(true);
 
     try {
-      const result = await saveAttendanceToSheet(member, status);
+      for (const member of filteredMembers) {
+        const status = attendanceStatus[member.id] as Exclude<AttendanceStatus, "미체크">;
+        const result = await saveAttendanceToSheet(member, status);
 
-      if (!result.ok) {
-        alert("저장 실패: " + (result.error || "알 수 없는 오류"));
-        return;
+        if (!result.ok) {
+          alert(
+            `${member.name} 저장 실패: ` + (result.error || "알 수 없는 오류")
+          );
+          return;
+        }
       }
 
-      alert(`${member.name} 저장 완료`);
+      alert(`${currentPart} 파트 전체 저장 완료`);
     } catch (error) {
       console.error(error);
-      alert("저장 중 오류가 발생했습니다.");
+      alert("일괄 저장 중 오류가 발생했습니다.");
     } finally {
-      setSavingMemberId(null);
+      setIsBatchSaving(false);
     }
   }
 
@@ -258,7 +281,7 @@ export default function Home() {
     >
       <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>동아리 출석체크</h1>
       <p style={{ color: "#555", marginBottom: "24px" }}>
-        members 시트에서 단원 목록을 자동으로 불러오고, 체크자에 따라 해당 파트만 표시됨
+        members 시트에서 단원 목록을 자동으로 불러오고, 현재 파트 전체를 한 번에 저장함
       </p>
 
       <section
@@ -363,12 +386,41 @@ export default function Home() {
           marginBottom: "24px",
         }}
       >
-        <h2 style={{ marginTop: 0 }}>임원용 전체 관리</h2>
-        <p style={{ color: "#666", marginTop: "8px" }}>
-          선택한 체크자의 파트 단원만 표시됨.
-          <br />
-          같은 날짜에 같은 단원을 다시 저장하면 마지막 입력값으로 덮어씀.
-        </p>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h2 style={{ marginTop: 0, marginBottom: "8px" }}>임원용 전체 관리</h2>
+            <p style={{ color: "#666", margin: 0 }}>
+              선택한 체크자의 파트 단원만 표시됨.
+              <br />
+              같은 날짜에 같은 단원을 다시 저장하면 마지막 입력값으로 덮어씀.
+            </p>
+          </div>
+
+          <button
+            onClick={handleBatchSave}
+            disabled={isBatchSaving || isLoadingMembers || filteredMembers.length === 0}
+            style={{
+              padding: "12px 18px",
+              border: "none",
+              borderRadius: "8px",
+              cursor:
+                isBatchSaving || isLoadingMembers || filteredMembers.length === 0
+                  ? "default"
+                  : "pointer",
+              fontWeight: 700,
+            }}
+          >
+            {isBatchSaving ? `${currentPart} 저장 중...` : `${currentPart} 파트 일괄 저장`}
+          </button>
+        </div>
 
         {isLoadingMembers ? (
           <p style={{ marginTop: "16px" }}>단원 목록 불러오는 중...</p>
@@ -383,7 +435,6 @@ export default function Home() {
                   <th style={thStyle}>현재 상태</th>
                   <th style={thStyle}>변경</th>
                   <th style={thStyle}>지각 사유</th>
-                  <th style={thStyle}>시트 저장</th>
                 </tr>
               </thead>
               <tbody>
@@ -424,30 +475,18 @@ export default function Home() {
                               }))
                             }
                             placeholder="지각 사유 입력"
-                            style={{ width: "180px", padding: "8px" }}
+                            style={{ width: "220px", padding: "8px" }}
                           />
                         ) : (
                           <span style={{ color: "#999" }}>-</span>
                         )}
-                      </td>
-                      <td style={tdStyle}>
-                        <button
-                          onClick={() => handleAdminSave(member)}
-                          disabled={savingMemberId === member.id}
-                          style={{
-                            padding: "8px 12px",
-                            cursor: savingMemberId === member.id ? "default" : "pointer",
-                          }}
-                        >
-                          {savingMemberId === member.id ? "저장 중..." : "저장"}
-                        </button>
                       </td>
                     </tr>
                   );
                 })}
                 {filteredMembers.length === 0 && (
                   <tr>
-                    <td style={tdStyle} colSpan={7}>
+                    <td style={tdStyle} colSpan={6}>
                       해당 파트 단원이 없습니다.
                     </td>
                   </tr>
