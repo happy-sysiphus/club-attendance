@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type Part = "소프라노" | "알토" | "테너" | "베이스";
 type AttendanceStatus = "출석" | "지각" | "결석" | "미체크";
@@ -17,9 +17,11 @@ type Member = {
   studentId: string; // 시트의 member_id
 };
 
-const initialMembers: Member[] = [
-  { id: 1, name: "박은성", part: "베이스", studentId: "BAS001" }
-];
+type MemberApiItem = {
+  member_id: string;
+  name: string;
+  part: Part;
+};
 
 const PARTS: Part[] = ["소프라노", "알토", "테너", "베이스"];
 const STATUS_OPTIONS: AttendanceStatus[] = ["출석", "지각", "결석", "미체크"];
@@ -46,28 +48,70 @@ function getToday() {
 }
 
 export default function Home() {
-  const [members, setMembers] = useState<Member[]>(initialMembers);
+  const [members, setMembers] = useState<Member[]>([]);
   const [checkedBy, setCheckedBy] = useState<Checker>("소프라노 파트장");
 
   const [newName, setNewName] = useState("");
   const [newPart, setNewPart] = useState<Part>("소프라노");
   const [newStudentId, setNewStudentId] = useState("");
 
+  const [loadingMembers, setLoadingMembers] = useState(true);
   const [savingMemberId, setSavingMemberId] = useState<number | null>(null);
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [deletingMemberId, setDeletingMemberId] = useState<number | null>(null);
 
-  const [attendanceStatus, setAttendanceStatus] = useState<Record<number, AttendanceStatus>>({
-    1: "미체크",
-    2: "미체크",
-    3: "미체크",
-    4: "미체크",
-    5: "미체크",
-    6: "미체크",
-  });
-
+  const [attendanceStatus, setAttendanceStatus] = useState<Record<number, AttendanceStatus>>({});
   const [lateReasons, setLateReasons] = useState<Record<number, string>>({});
 
   const currentPart = checkerToPart[checkedBy];
   const filteredMembers = members.filter((member) => member.part === currentPart);
+
+  useEffect(() => {
+    loadMembers();
+  }, []);
+
+  async function loadMembers() {
+    setLoadingMembers(true);
+
+    try {
+      const response = await fetch("/api/attendance?action=get_members", {
+        method: "GET",
+      });
+
+      const result = await response.json();
+
+      if (!result.ok) {
+        alert("단원 목록 불러오기 실패: " + (result.error || "알 수 없는 오류"));
+        return;
+      }
+
+      const loadedMembers: Member[] = (result.members as MemberApiItem[]).map((item, index) => ({
+        id: Date.now() + index,
+        name: item.name,
+        part: item.part,
+        studentId: item.member_id,
+      }));
+
+      setMembers(loadedMembers);
+
+      const nextAttendanceStatus: Record<number, AttendanceStatus> = {};
+      const nextLateReasons: Record<number, string> = {};
+
+      loadedMembers.forEach((member) => {
+        nextAttendanceStatus[member.id] = "미체크";
+        nextLateReasons[member.id] = "";
+      });
+
+      setAttendanceStatus(nextAttendanceStatus);
+      setLateReasons(nextLateReasons);
+    } catch (error) {
+      console.error(error);
+      alert("단원 목록을 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setLoadingMembers(false);
+    }
+  }
 
   const summary = useMemo(() => {
     const statuses = filteredMembers.map((member) => attendanceStatus[member.id] || "미체크");
@@ -93,6 +137,7 @@ export default function Home() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        type: "attendance",
         session_id: today,
         date: today,
         member_id: member.studentId,
@@ -104,8 +149,41 @@ export default function Home() {
       }),
     });
 
-    const result = await response.json();
-    return result;
+    return await response.json();
+  }
+
+  async function saveMemberToSheet(member: { studentId: string; name: string; part: Part }) {
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "member",
+        action: "add",
+        member_id: member.studentId,
+        name: member.name,
+        part: member.part,
+      }),
+    });
+
+    return await response.json();
+  }
+
+  async function deleteMemberFromSheet(memberId: string) {
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "member",
+        action: "delete",
+        member_id: memberId,
+      }),
+    });
+
+    return await response.json();
   }
 
   function handleAdminChange(memberId: number, status: AttendanceStatus) {
@@ -154,7 +232,75 @@ export default function Home() {
     }
   }
 
-  function addMember() {
+  async function handleBulkSave() {
+    if (filteredMembers.length === 0) {
+      alert("현재 파트에 저장할 단원이 없습니다.");
+      return;
+    }
+
+    const membersToSave = filteredMembers.filter(
+      (member) => (attendanceStatus[member.id] || "미체크") !== "미체크"
+    );
+
+    if (membersToSave.length === 0) {
+      alert("저장할 출석 상태가 없습니다. 먼저 상태를 선택하세요.");
+      return;
+    }
+
+    const invalidLateMember = membersToSave.find((member) => {
+      const status = attendanceStatus[member.id];
+      return status === "지각" && !(lateReasons[member.id] || "").trim();
+    });
+
+    if (invalidLateMember) {
+      alert(`${invalidLateMember.name}의 지각 사유를 입력하세요.`);
+      return;
+    }
+
+    setIsBulkSaving(true);
+
+    try {
+      const results = await Promise.allSettled(
+        membersToSave.map(async (member) => {
+          const status = attendanceStatus[member.id] as Exclude<AttendanceStatus, "미체크">;
+          const result = await saveAttendanceToSheet(member, status);
+
+          if (!result.ok) {
+            throw new Error(result.error || "알 수 없는 오류");
+          }
+
+          return member.name;
+        })
+      );
+
+      const successCount = results.filter((r) => r.status === "fulfilled").length;
+      const failedResults = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+      const skippedCount = filteredMembers.length - membersToSave.length;
+
+      let message = `일괄 저장 완료\n성공: ${successCount}명`;
+
+      if (skippedCount > 0) {
+        message += `\n미체크로 건너뜀: ${skippedCount}명`;
+      }
+
+      if (failedResults.length > 0) {
+        message += `\n실패: ${failedResults.length}명`;
+        const firstError = failedResults[0]?.reason;
+        if (firstError instanceof Error) {
+          message += `\n첫 오류: ${firstError.message}`;
+        }
+      }
+
+      alert(message);
+    } catch (error) {
+      console.error(error);
+      alert("일괄 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsBulkSaving(false);
+    }
+  }
+
+  async function addMember() {
     if (!newName.trim()) {
       alert("이름을 입력하세요.");
       return;
@@ -172,6 +318,8 @@ export default function Home() {
       return;
     }
 
+    setIsAddingMember(true);
+
     const newMember: Member = {
       id: Date.now(),
       name: newName.trim(),
@@ -179,19 +327,79 @@ export default function Home() {
       studentId: newStudentId.trim(),
     };
 
-    setMembers((prev) => [...prev, newMember]);
-    setAttendanceStatus((prev) => ({
-      ...prev,
-      [newMember.id]: "미체크",
-    }));
-    setLateReasons((prev) => ({
-      ...prev,
-      [newMember.id]: "",
-    }));
+    try {
+      const result = await saveMemberToSheet(newMember);
 
-    setNewName("");
-    setNewPart("소프라노");
-    setNewStudentId("");
+      if (!result.ok) {
+        alert("단원 저장 실패: " + (result.error || "알 수 없는 오류"));
+        return;
+      }
+
+      setMembers((prev) => [...prev, newMember]);
+      setAttendanceStatus((prev) => ({
+        ...prev,
+        [newMember.id]: "미체크",
+      }));
+      setLateReasons((prev) => ({
+        ...prev,
+        [newMember.id]: "",
+      }));
+
+      setNewName("");
+      setNewPart("소프라노");
+      setNewStudentId("");
+
+      alert("단원 등록 완료");
+    } catch (error) {
+      console.error(error);
+      alert("단원 등록 중 오류가 발생했습니다.");
+    } finally {
+      setIsAddingMember(false);
+    }
+  }
+
+  async function deleteMember(memberId: number) {
+    const target = members.find((m) => m.id === memberId);
+    if (!target) return;
+
+    const ok = window.confirm(`${target.name} 단원을 삭제할까요?`);
+    if (!ok) return;
+
+    setDeletingMemberId(memberId);
+
+    try {
+      const result = await deleteMemberFromSheet(target.studentId);
+
+      if (!result.ok) {
+        alert("단원 삭제 실패: " + (result.error || "알 수 없는 오류"));
+        return;
+      }
+
+      setMembers((prev) => prev.filter((m) => m.id !== memberId));
+
+      setAttendanceStatus((prev) => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
+      });
+
+      setLateReasons((prev) => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
+      });
+
+      if (savingMemberId === memberId) {
+        setSavingMemberId(null);
+      }
+
+      alert("단원 삭제 완료");
+    } catch (error) {
+      console.error(error);
+      alert("단원 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setDeletingMemberId(null);
+    }
   }
 
   return (
@@ -317,6 +525,21 @@ export default function Home() {
           같은 날짜에 같은 단원을 다시 저장하면 마지막 입력값으로 덮어씀.
         </p>
 
+        <div style={{ marginTop: "16px", marginBottom: "16px" }}>
+          <button
+            onClick={handleBulkSave}
+            disabled={isBulkSaving || loadingMembers}
+            style={{
+              padding: "10px 16px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: isBulkSaving || loadingMembers ? "default" : "pointer",
+            }}
+          >
+            {isBulkSaving ? "일괄 저장 중..." : `현재 파트(${currentPart}) 일괄 저장`}
+          </button>
+        </div>
+
         <div style={{ overflowX: "auto", marginTop: "16px" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -328,67 +551,106 @@ export default function Home() {
                 <th style={thStyle}>변경</th>
                 <th style={thStyle}>지각 사유</th>
                 <th style={thStyle}>시트 저장</th>
+                <th style={thStyle}>삭제</th>
               </tr>
             </thead>
             <tbody>
-              {filteredMembers.map((member) => {
-                const status = attendanceStatus[member.id] || "미체크";
-                const isLate = status === "지각";
+              {loadingMembers ? (
+                <tr>
+                  <td style={tdStyle} colSpan={8}>
+                    단원 목록 불러오는 중...
+                  </td>
+                </tr>
+              ) : filteredMembers.length === 0 ? (
+                <tr>
+                  <td style={tdStyle} colSpan={8}>
+                    현재 파트에 등록된 단원이 없습니다.
+                  </td>
+                </tr>
+              ) : (
+                filteredMembers.map((member) => {
+                  const status = attendanceStatus[member.id] || "미체크";
+                  const isLate = status === "지각";
 
-                return (
-                  <tr key={member.id}>
-                    <td style={tdStyle}>{member.name}</td>
-                    <td style={tdStyle}>{member.studentId}</td>
-                    <td style={tdStyle}>{member.part}</td>
-                    <td style={tdStyle}>{status}</td>
-                    <td style={tdStyle}>
-                      <select
-                        value={status}
-                        onChange={(e) =>
-                          handleAdminChange(member.id, e.target.value as AttendanceStatus)
-                        }
-                        style={{ padding: "8px", minWidth: "120px" }}
-                      >
-                        {STATUS_OPTIONS.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td style={tdStyle}>
-                      {isLate ? (
-                        <input
-                          type="text"
-                          value={lateReasons[member.id] || ""}
+                  return (
+                    <tr key={member.id}>
+                      <td style={tdStyle}>{member.name}</td>
+                      <td style={tdStyle}>{member.studentId}</td>
+                      <td style={tdStyle}>{member.part}</td>
+                      <td style={tdStyle}>{status}</td>
+                      <td style={tdStyle}>
+                        <select
+                          value={status}
                           onChange={(e) =>
-                            setLateReasons((prev) => ({
-                              ...prev,
-                              [member.id]: e.target.value,
-                            }))
+                            handleAdminChange(member.id, e.target.value as AttendanceStatus)
                           }
-                          placeholder="지각 사유 입력"
-                          style={{ width: "180px", padding: "8px" }}
-                        />
-                      ) : (
-                        <span style={{ color: "#999" }}>-</span>
-                      )}
-                    </td>
-                    <td style={tdStyle}>
-                      <button
-                        onClick={() => handleAdminSave(member)}
-                        disabled={savingMemberId === member.id}
-                        style={{
-                          padding: "8px 12px",
-                          cursor: savingMemberId === member.id ? "default" : "pointer",
-                        }}
-                      >
-                        {savingMemberId === member.id ? "저장 중..." : "저장"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                          style={{ padding: "8px", minWidth: "120px" }}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={tdStyle}>
+                        {isLate ? (
+                          <input
+                            type="text"
+                            value={lateReasons[member.id] || ""}
+                            onChange={(e) =>
+                              setLateReasons((prev) => ({
+                                ...prev,
+                                [member.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="지각 사유 입력"
+                            style={{ width: "180px", padding: "8px" }}
+                          />
+                        ) : (
+                          <span style={{ color: "#999" }}>-</span>
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => handleAdminSave(member)}
+                          disabled={
+                            savingMemberId === member.id ||
+                            isBulkSaving ||
+                            deletingMemberId === member.id
+                          }
+                          style={{
+                            padding: "8px 12px",
+                            cursor:
+                              savingMemberId === member.id ||
+                              isBulkSaving ||
+                              deletingMemberId === member.id
+                                ? "default"
+                                : "pointer",
+                          }}
+                        >
+                          {savingMemberId === member.id ? "저장 중..." : "저장"}
+                        </button>
+                      </td>
+                      <td style={tdStyle}>
+                        <button
+                          onClick={() => deleteMember(member.id)}
+                          disabled={isBulkSaving || deletingMemberId === member.id}
+                          style={{
+                            padding: "8px 12px",
+                            cursor:
+                              isBulkSaving || deletingMemberId === member.id
+                                ? "default"
+                                : "pointer",
+                          }}
+                        >
+                          {deletingMemberId === member.id ? "삭제 중..." : "삭제"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -442,15 +704,16 @@ export default function Home() {
 
         <button
           onClick={addMember}
+          disabled={isAddingMember}
           style={{
             marginTop: "16px",
             padding: "12px 20px",
             border: "none",
             borderRadius: "8px",
-            cursor: "pointer",
+            cursor: isAddingMember ? "default" : "pointer",
           }}
         >
-          단원 등록
+          {isAddingMember ? "등록 중..." : "단원 등록"}
         </button>
       </section>
     </main>
