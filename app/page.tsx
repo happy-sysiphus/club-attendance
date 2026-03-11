@@ -53,7 +53,6 @@ export default function Home() {
 
   const [newName, setNewName] = useState("");
   const [newPart, setNewPart] = useState<Part>("소프라노");
-  const [newStudentId, setNewStudentId] = useState("");
 
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [savingMemberId, setSavingMemberId] = useState<number | null>(null);
@@ -152,7 +151,7 @@ export default function Home() {
     return await response.json();
   }
 
-  async function saveMemberToSheet(member: { studentId: string; name: string; part: Part }) {
+  async function saveMemberToSheet(member: { name: string; part: Part }) {
     const response = await fetch("/api/attendance", {
       method: "POST",
       headers: {
@@ -161,7 +160,6 @@ export default function Home() {
       body: JSON.stringify({
         type: "member",
         action: "add",
-        member_id: member.studentId,
         name: member.name,
         part: member.part,
       }),
@@ -300,63 +298,53 @@ export default function Home() {
     }
   }
 
-  async function addMember() {
-    if (!newName.trim()) {
-      alert("이름을 입력하세요.");
-      return;
-    }
+ async function addMember() {
+  if (!newName.trim()) {
+    alert("이름을 입력하세요.");
+    return;
+  }
 
-    if (!newStudentId.trim()) {
-      alert("member_id를 입력하세요.");
-      return;
-    }
+  setIsAddingMember(true);
 
-    const duplicate = members.some((m) => m.studentId === newStudentId.trim());
-
-    if (duplicate) {
-      alert("이미 있는 member_id입니다.");
-      return;
-    }
-
-    setIsAddingMember(true);
-
-    const newMember: Member = {
-      id: Date.now(),
+  try {
+    const result = await saveMemberToSheet({
       name: newName.trim(),
       part: newPart,
-      studentId: newStudentId.trim(),
+    });
+
+    if (!result.ok) {
+      alert("단원 저장 실패: " + (result.error || "알 수 없는 오류"));
+      return;
+    }
+
+    const createdMember: Member = {
+      id: Date.now(),
+      name: result.name,
+      part: result.part,
+      studentId: result.member_id,
     };
 
-    try {
-      const result = await saveMemberToSheet(newMember);
+    setMembers((prev) => [...prev, createdMember]);
+    setAttendanceStatus((prev) => ({
+      ...prev,
+      [createdMember.id]: "미체크",
+    }));
+    setLateReasons((prev) => ({
+      ...prev,
+      [createdMember.id]: "",
+    }));
 
-      if (!result.ok) {
-        alert("단원 저장 실패: " + (result.error || "알 수 없는 오류"));
-        return;
-      }
+    setNewName("");
+    setNewPart("소프라노");
 
-      setMembers((prev) => [...prev, newMember]);
-      setAttendanceStatus((prev) => ({
-        ...prev,
-        [newMember.id]: "미체크",
-      }));
-      setLateReasons((prev) => ({
-        ...prev,
-        [newMember.id]: "",
-      }));
-
-      setNewName("");
-      setNewPart("소프라노");
-      setNewStudentId("");
-
-      alert("단원 등록 완료");
-    } catch (error) {
-      console.error(error);
-      alert("단원 등록 중 오류가 발생했습니다.");
-    } finally {
-      setIsAddingMember(false);
-    }
+    alert(`단원 등록 완료 (${result.member_id})`);
+  } catch (error) {
+    console.error(error);
+    alert("단원 등록 중 오류가 발생했습니다.");
+  } finally {
+    setIsAddingMember(false);
   }
+}
 
   async function deleteMember(memberId: number) {
     const target = members.find((m) => m.id === memberId);
@@ -692,14 +680,6 @@ export default function Home() {
               </option>
             ))}
           </select>
-
-          <input
-            type="text"
-            placeholder="member_id 예: SOP004"
-            value={newStudentId}
-            onChange={(e) => setNewStudentId(e.target.value)}
-            style={{ width: "100%", padding: "10px" }}
-          />
         </div>
 
         <button
