@@ -189,7 +189,7 @@ export default function Home() {
 
     if (lateWithoutReasonMembers.length > 0) {
       alert(
-        "지각 사유가 비어 있는 단원이 있습니다.\n\n" +
+        "지각 시간이 비어 있는 단원이 있습니다.\n\n" +
           lateWithoutReasonMembers.map((member) => member.name).join(", ")
       );
       return;
@@ -381,7 +381,7 @@ export default function Home() {
                   <th style={thStyle}>파트</th>
                   <th style={thStyle}>현재 상태</th>
                   <th style={thStyle}>변경</th>
-                  <th style={thStyle}>지각 사유</th>
+                  <th style={thStyle}>지각 시간</th>
                 </tr>
               </thead>
               <tbody>
@@ -421,7 +421,7 @@ export default function Home() {
                                 [member.id]: e.target.value,
                               }))
                             }
-                            placeholder="지각 사유 입력"
+                            placeholder="지각 시간 입력"
                             style={{ width: "220px", padding: "8px" }}
                           />
                         ) : (
