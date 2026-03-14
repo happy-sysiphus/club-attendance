@@ -17,7 +17,6 @@ type Member = {
   studentId: string; // 시트의 member_id 사용
 };
 
-const PARTS: Part[] = ["소프라노", "알토", "테너", "베이스"];
 const STATUS_OPTIONS: AttendanceStatus[] = ["출석", "지각", "결석", "미체크"];
 const CHECKERS: Checker[] = [
   "소프라노 파트장",
@@ -44,10 +43,6 @@ function getToday() {
 export default function Home() {
   const [members, setMembers] = useState<Member[]>([]);
   const [checkedBy, setCheckedBy] = useState<Checker>("소프라노 파트장");
-
-  const [newName, setNewName] = useState("");
-  const [newPart, setNewPart] = useState<Part>("소프라노");
-  const [newStudentId, setNewStudentId] = useState("");
 
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
   const [isBatchSaving, setIsBatchSaving] = useState(false);
@@ -208,9 +203,7 @@ export default function Home() {
         const result = await saveAttendanceToSheet(member, status);
 
         if (!result.ok) {
-          alert(
-            `${member.name} 저장 실패: ` + (result.error || "알 수 없는 오류")
-          );
+          alert(`${member.name} 저장 실패: ` + (result.error || "알 수 없는 오류"));
           return;
         }
       }
@@ -221,52 +214,6 @@ export default function Home() {
       alert("일괄 저장 중 오류가 발생했습니다.");
     } finally {
       setIsBatchSaving(false);
-    }
-  }
-
-  async function addMember() {
-    if (!newName.trim()) {
-      alert("이름을 입력하세요.");
-      return;
-    }
-
-    if (!newStudentId.trim()) {
-      alert("학번을 입력하세요.");
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/attendance", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          type: "member",
-          action: "add",
-          name: newName.trim(),
-          part: newPart,
-          student_id: newStudentId.trim(),
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!result.ok) {
-        alert("단원 추가 실패: " + (result.error || "알 수 없는 오류"));
-        return;
-      }
-
-      alert("단원 추가 완료");
-
-      setNewName("");
-      setNewPart("소프라노");
-      setNewStudentId("");
-
-      await loadMembers();
-    } catch (error) {
-      console.error(error);
-      alert("단원 추가 중 오류가 발생했습니다.");
     }
   }
 
@@ -495,66 +442,6 @@ export default function Home() {
             </table>
           </div>
         )}
-      </section>
-
-      <section
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: "12px",
-          padding: "20px",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>단원 추가</h2>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "12px",
-            marginTop: "16px",
-          }}
-        >
-          <input
-            type="text"
-            placeholder="이름"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            style={{ width: "100%", padding: "10px" }}
-          />
-
-          <select
-            value={newPart}
-            onChange={(e) => setNewPart(e.target.value as Part)}
-            style={{ width: "100%", padding: "10px" }}
-          >
-            {PARTS.map((part) => (
-              <option key={part} value={part}>
-                {part}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="text"
-            placeholder="학번"
-            value={newStudentId}
-            onChange={(e) => setNewStudentId(e.target.value)}
-            style={{ width: "100%", padding: "10px" }}
-          />
-        </div>
-
-        <button
-          onClick={addMember}
-          style={{
-            marginTop: "16px",
-            padding: "12px 20px",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          단원 등록
-        </button>
       </section>
     </main>
   );
