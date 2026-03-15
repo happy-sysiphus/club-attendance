@@ -227,8 +227,8 @@ export default function Home() {
       }}
     >
       <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>동아리 출석체크</h1>
-      <p style={{ color: "#555", marginBottom: "24px" }}>
-        members 시트에서 단원 목록을 자동으로 불러오고, 현재 파트 전체를 한 번에 저장함
+      <p style={{ color: "#15ff00", marginBottom: "24px" }}>
+        출석 시스템과 관련된 모든 문의는 010-3973-2798로 주세요
       </p>
 
       <section
@@ -344,10 +344,18 @@ export default function Home() {
         >
           <div>
             <h2 style={{ marginTop: 0, marginBottom: "8px" }}>임원용 전체 관리</h2>
-            <p style={{ color: "#666", margin: 0 }}>
-              선택한 체크자의 파트 단원만 표시됨.
+            <p style={{ color: "#ff0000", margin: 0 }}>
+              1. 체크자에서 본인의 파트를 설정한다.
               <br />
-              같은 날짜에 같은 단원을 다시 저장하면 마지막 입력값으로 덮어씀.
+              2. 파트단원들의 출석여부를 입력한다.
+              <br />
+              3. 파트일괄저장 버튼을 누른다.
+              <br />
+              4. 저장이 완료 되었다는 창이 뜰 때까지 기다린다.
+              <br />
+              5. 만약 수정이 필요하다면 1~4를 반복하면 DB에서 알아서 수정된다.
+              <br />
+              6. 출석, 지각= 출석 결석=결석
             </p>
           </div>
 
