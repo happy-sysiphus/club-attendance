@@ -226,7 +226,7 @@ export default function Home() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>동아리 출석체크</h1>
+      <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>GLEE 출석체크</h1>
       <p style={{ color: "#15ff00", marginBottom: "24px" }}>
         출석 시스템과 관련된 모든 문의는 010-3973-2798로 주세요
       </p>
