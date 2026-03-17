@@ -50,6 +50,9 @@ export default function Home() {
   const [attendanceStatus, setAttendanceStatus] = useState<Record<number, AttendanceStatus>>({});
   const [lateReasons, setLateReasons] = useState<Record<number, string>>({});
 
+  const [saveProgress, setSaveProgress] = useState(0);
+  const [saveProgressText, setSaveProgressText] = useState("0 / 0");
+
   const currentPart = checkerToPart[checkedBy];
   const filteredMembers = members.filter((member) => member.part === currentPart);
 
@@ -195,9 +198,14 @@ export default function Home() {
     }
 
     setIsBatchSaving(true);
+    setSaveProgress(0);
+    setSaveProgressText(`0 / ${filteredMembers.length}`);
+
+    const total = filteredMembers.length;
 
     try {
-      for (const member of filteredMembers) {
+      for (let i = 0; i < filteredMembers.length; i++) {
+        const member = filteredMembers[i];
         const status = attendanceStatus[member.id] as Exclude<AttendanceStatus, "미체크">;
 
         const result = await saveAttendanceToSheet(member, status);
@@ -206,6 +214,12 @@ export default function Home() {
           alert(`${member.name} 저장 실패: ` + (result.error || "알 수 없는 오류"));
           return;
         }
+
+        const done = i + 1;
+        const percent = Math.round((done / total) * 100);
+
+        setSaveProgress(percent);
+        setSaveProgressText(`${done} / ${total}`);
       }
 
       alert(`${currentPart} 파트 전체 저장 완료`);
@@ -227,8 +241,8 @@ export default function Home() {
       }}
     >
       <h1 style={{ fontSize: "32px", marginBottom: "10px" }}>GLEE 출석체크</h1>
-      <p style={{ color: "#7f7ff9", marginBottom: "24px" }}>
-        모든 문의는 단장에게.
+      <p style={{ color: "#00ff40", marginBottom: "24px" }}>
+        모든 문의는 단장에게
       </p>
 
       <section
@@ -270,7 +284,11 @@ export default function Home() {
             <br />
             <select
               value={checkedBy}
-              onChange={(e) => setCheckedBy(e.target.value as Checker)}
+              onChange={(e) => {
+                setCheckedBy(e.target.value as Checker);
+                setSaveProgress(0);
+                setSaveProgressText("0 / 0");
+              }}
               style={{ width: "100%", padding: "10px", marginTop: "8px" }}
             >
               {CHECKERS.map((checker) => (
@@ -333,6 +351,42 @@ export default function Home() {
           marginBottom: "24px",
         }}
       >
+        <div style={{ fontWeight: 700, marginBottom: "8px" }}>저장 진행률</div>
+
+        <div
+          style={{
+            width: "100%",
+            height: "18px",
+            backgroundColor: "#e5e5e5",
+            borderRadius: "999px",
+            overflow: "hidden",
+            marginBottom: "8px",
+          }}
+        >
+          <div
+            style={{
+              width: `${saveProgress}%`,
+              height: "100%",
+              backgroundColor: "#4f46e5",
+              transition: "width 0.2s ease",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+          <span>{saveProgress}%</span>
+          <span>{saveProgressText}</span>
+        </div>
+      </section>
+
+      <section
+        style={{
+          border: "1px solid #ddd",
+          borderRadius: "12px",
+          padding: "20px",
+          marginBottom: "24px",
+        }}
+      >
         <div
           style={{
             display: "flex",
@@ -345,13 +399,13 @@ export default function Home() {
           <div>
             <h2 style={{ marginTop: 0, marginBottom: "8px" }}>임원용 전체 관리</h2>
             <p style={{ color: "#ff0000", margin: 0 }}>
-              1. 공통 설정의 체크자에서 본인 파트 선택
+              1. 체크자에서 본인 파트 선택
               <br />
-              2. 파트원들의 출결, 지각 사유 및 시간 입력
+              2. 본인 파트원들의 출결, 지각 및 사유 입력
               <br />
               3. 파트 일괄 저장 클릭
               <br />
-              4. 저장 진행률이 100%가 될 때까지 "끈기있게 대기"
+              4. 진행 저장률이 100%가 될 때까지 끈기있게 대기
               <br />
               5. 수정하려면 1~4 반복
             </p>
